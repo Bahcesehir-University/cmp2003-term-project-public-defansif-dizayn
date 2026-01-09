@@ -1,126 +1,169 @@
 #include "analyzer.h"
-#include <string>
-#include <fstream>
 #include <unordered_map>
+#include <fstream>
+#include <iostream>
 #include <algorithm>
 
-static inline int parseHour(const std::string& dt) {
-    if (dt.size() < 16) return -1;
-    if (dt[10] != ' ') return -1;
-    if (dt[13] != ':') return -1;
+using namespace std;
 
-    char h1 = dt[11];
-    char h2 = dt[12];
+static inline int parseHour(const string& timeStr) {
+    if (timeStr.length() < 5) return -1;
 
-    if (h1 < '0' || h1 > '9' || h2 < '0' || h2 > '9') return -1;
+    char tensDigit = timeStr[0];
+    char onesDigit = timeStr[1];
 
-    int hour = (h1 - '0') * 10 + (h2 - '0');
+    if (tensDigit < '0' || tensDigit > '9' ||
+        onesDigit < '0' || onesDigit > '9') return -1;
+
+    if (timeStr[2] != ':') return -1;
+
+    int hour = (tensDigit - '0') * 10 + (onesDigit - '0');
     if (hour < 0 || hour > 23) return -1;
 
     return hour;
 }
 
-static inline void trimInPlace(std::string& s) {
+static inline void trimInPlace(string& text) {
     size_t start = 0;
-    while (start < s.size()) {
-        char c = s[start];
-        if (c != ' ' && c != '\t' && c != '\r' && c != '\n') break;
+    while (start < text.size()) {
+        char ch = text[start];
+        if (ch != ' ' && ch != '\t' && ch != '\r' && ch != '\n') break;
         ++start;
     }
 
-    size_t end = s.size();
+    size_t end = text.size();
     while (end > start) {
-        char c = s[end - 1];
-        if (c != ' ' && c != '\t' && c != '\r' && c != '\n') break;
+        char ch = text[end - 1];
+        if (ch != ' ' && ch != '\t' && ch != '\r' && ch != '\n') break;
         --end;
     }
 
-    if (start == 0 && end == s.size()) return;
-    s = s.substr(start, end - start);
+    if (start == 0 && end == text.size()) return;
+    text = text.substr(start, end - start);
 }
 
-void TripAnalyzer::ingestFile(const std::string& csvPath) {
-    std::ifstream file(csvPath);
-    if (!file.is_open()) return;
+void TripAnalyzer::processLine(const string& line) {
+    int commaCount = 0;
+    for (char ch : line) if (ch == ',') commaCount++;
+    if (commaCount < 5) return;
 
-    std::string line;
-    if (!std::getline(file, line)) return;
+    size_t comma1 = line.find(',');
+    if (comma1 == string::npos) return;
+
+    size_t comma2 = line.find(',', comma1 + 1);
+    if (comma2 == string::npos) return;
+
+    size_t comma3 = line.find(',', comma2 + 1);
+    if (comma3 == string::npos) return;
+
+    size_t comma4 = line.find(',', comma3 + 1);
+
+    string pickupZone = line.substr(comma1 + 1, comma2 - comma1 - 1);
+    trimInPlace(pickupZone);
+    if (pickupZone.empty()) return;
+
+    string pickupTimestamp;
+    if (comma4 != string::npos)
+        pickupTimestamp = line.substr(comma3 + 1, comma4 - comma3 - 1);
+    else
+        pickupTimestamp = line.substr(comma3 + 1);
+
+    trimInPlace(pickupTimestamp);
+    if (pickupTimestamp.empty()) return;
+
+    size_t spacePos = pickupTimestamp.find(' ');
+    if (spacePos == string::npos || spacePos + 3 > pickupTimestamp.length()) return;
+
+    string pickupTime = pickupTimestamp.substr(spacePos + 1);
+    trimInPlace(pickupTime);
+
+    int pickupHour = parseHour(pickupTime);
+    if (pickupHour < 0 || pickupHour > 23) return;
+
+    zoneCounts[pickupZone]++;
+
+    auto [zoneIt, inserted] =
+        slotCounts.try_emplace(pickupZone, array<long long, 24>{});
+    zoneIt->second[pickupHour]++;
+}
+
+void TripAnalyzer::ingestFile(const string& csvPath) {
+    ifstream file(csvPath);
+    if (!file.is_open()) return;
 
     zoneCounts.reserve(60000);
     slotCounts.reserve(60000);
 
-    while (std::getline(file, line)) {
-        size_t c1 = line.find(',');
-        if (c1 == std::string::npos) continue;
+    string line;
+    bool firstLine = true;
 
-        size_t c2 = line.find(',', c1 + 1);
-        if (c2 == std::string::npos) continue;
-
-        size_t c3 = line.find(',', c2 + 1);
-        if (c3 == std::string::npos) continue;
-
-        size_t c4 = line.find(',', c3 + 1);
-        if (c4 == std::string::npos) continue;
-
-        std::string zone = line.substr(c1 + 1, c2 - c1 - 1);
-        trimInPlace(zone);
-        if (zone.empty()) continue;
-
-        std::string dt = line.substr(c3 + 1, c4 - c3 - 1);
-        trimInPlace(dt);
-        if (dt.empty()) continue;
-
-        int hour = parseHour(dt);
-        if (hour < 0) continue;
-
-        zoneCounts[zone] += 1;
-        slotCounts[zone][hour] += 1;
+    while (getline(file, line)) {
+        if (firstLine) {
+            firstLine = false;
+            if (line.find("TripID") != string::npos) continue;
+        }
+        processLine(line);
     }
 }
 
-std::vector<ZoneCount> TripAnalyzer::topZones(int k) const {
-    std::vector<ZoneCount> result;
-    result.reserve(zoneCounts.size());
+void TripAnalyzer::ingestStdin() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
 
-    for (auto it = zoneCounts.begin(); it != zoneCounts.end(); ++it) {
-        result.push_back(ZoneCount{ it->first, it->second });
+    zoneCounts.reserve(60000);
+    slotCounts.reserve(60000);
+
+    string line;
+    bool firstLine = true;
+
+    while (getline(cin, line)) {
+        if (firstLine) {
+            firstLine = false;
+            if (line.find("TripID") != string::npos) continue;
+        }
+        processLine(line);
+    }
+}
+
+vector<ZoneCount> TripAnalyzer::topZones(int k) const {
+    vector<ZoneCount> results;
+    results.reserve(zoneCounts.size());
+
+    for (auto zoneIt = zoneCounts.begin(); zoneIt != zoneCounts.end(); ++zoneIt) {
+        results.push_back({ zoneIt->first, zoneIt->second });
     }
 
-    std::sort(result.begin(), result.end(),
+    sort(results.begin(), results.end(),
         [](const ZoneCount& a, const ZoneCount& b) {
             if (a.count != b.count) return a.count > b.count;
             return a.zone < b.zone;
         });
 
-    if ((int)result.size() > k) result.resize(k);
-    return result;
+    if ((int)results.size() > k) results.resize(k);
+    return results;
 }
 
-std::vector<SlotCount> TripAnalyzer::topBusySlots(int k) const {
-    std::vector<SlotCount> result;
+vector<SlotCount> TripAnalyzer::topBusySlots(int k) const {
+    vector<SlotCount> results;
 
-    for (auto zit = slotCounts.begin(); zit != slotCounts.end(); ++zit) {
-        const std::string& zone = zit->first;
-        const std::unordered_map<int, long long>& hours = zit->second;
+    for (auto slotIt = slotCounts.begin(); slotIt != slotCounts.end(); ++slotIt) {
+        const string& zone = slotIt->first;
+        const array<long long, 24>& hours = slotIt->second;
 
-        for (auto hit = hours.begin(); hit != hours.end(); ++hit) {
-            int hour = hit->first;
-            long long cnt = hit->second;
-
-            if (cnt <= 0) continue;
-            if (hour < 0 || hour > 23) continue;
-
-            result.push_back(SlotCount{ zone, hour, cnt });
+        for (int hourIt = 0; hourIt < 24; hourIt++) {
+            long long cnt = hours[hourIt];
+            if (cnt > 0)
+                results.push_back({ zone, hourIt, cnt });
         }
     }
 
-    std::sort(result.begin(), result.end(),
+    sort(results.begin(), results.end(),
         [](const SlotCount& a, const SlotCount& b) {
             if (a.count != b.count) return a.count > b.count;
-            if (a.zone != b.zone)   return a.zone < b.zone;
+            if (a.zone != b.zone) return a.zone < b.zone;
             return a.hour < b.hour;
         });
 
-    if ((int)result.size() > k) result.resize(k);
-    return result;
+    if ((int)results.size() > k) results.resize(k);
+    return results;
 }
