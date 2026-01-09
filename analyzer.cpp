@@ -1,19 +1,17 @@
 #include "analyzer.h"
-#include <string>
-#include <fstream>
 #include <unordered_map>
+#include <fstream>
+#include <iostream>
 #include <algorithm>
 
 static inline int parseHour(const std::string& timeStr) {
-    if (timeStr.length() < 5) return -1;   
+    if (timeStr.length() < 5) return -1;
 
     char tensDigit = timeStr[0];
     char onesDigit = timeStr[1];
 
-    if (tensDigit < '0' || tensDigit > '9' ||
-        onesDigit < '0' || onesDigit > '9')
-        return -1;
-
+    if (tensDigit < '0' || tensDigit > '9') return -1;
+    if (onesDigit < '0' || onesDigit > '9') return -1;
     if (timeStr[2] != ':') return -1;
 
     int hour = (tensDigit - '0') * 10 + (onesDigit - '0');
@@ -23,14 +21,14 @@ static inline int parseHour(const std::string& timeStr) {
 }
 
 static inline void trimInPlace(std::string& text) {
-    std::size_t start = 0;
+    size_t start = 0;
     while (start < text.size()) {
         char ch = text[start];
         if (ch != ' ' && ch != '\t' && ch != '\r' && ch != '\n') break;
         ++start;
     }
 
-    std::size_t end = text.size();
+    size_t end = text.size();
     while (end > start) {
         char ch = text[end - 1];
         if (ch != ' ' && ch != '\t' && ch != '\r' && ch != '\n') break;
@@ -43,20 +41,19 @@ static inline void trimInPlace(std::string& text) {
 
 void TripAnalyzer::processLine(const std::string& line) {
     int commaCount = 0;
-    for (char ch : line)
-        if (ch == ',') commaCount++;
+    for (char ch : line) if (ch == ',') commaCount++;
     if (commaCount < 5) return;
 
-    std::size_t comma1 = line.find(',');
+    size_t comma1 = line.find(',');
     if (comma1 == std::string::npos) return;
 
-    std::size_t comma2 = line.find(',', comma1 + 1);
+    size_t comma2 = line.find(',', comma1 + 1);
     if (comma2 == std::string::npos) return;
 
-    std::size_t comma3 = line.find(',', comma2 + 1);
+    size_t comma3 = line.find(',', comma2 + 1);
     if (comma3 == std::string::npos) return;
 
-    std::size_t comma4 = line.find(',', comma3 + 1);
+    size_t comma4 = line.find(',', comma3 + 1);
 
     std::string pickupZone =
         line.substr(comma1 + 1, comma2 - comma1 - 1);
@@ -72,10 +69,9 @@ void TripAnalyzer::processLine(const std::string& line) {
     trimInPlace(pickupTimestamp);
     if (pickupTimestamp.empty()) return;
 
-    std::size_t spacePos = pickupTimestamp.find(' ');
+    size_t spacePos = pickupTimestamp.find(' ');
     if (spacePos == std::string::npos ||
-        spacePos + 3 > pickupTimestamp.length())
-        return;
+        spacePos + 3 > pickupTimestamp.length()) return;
 
     std::string pickupTime =
         pickupTimestamp.substr(spacePos + 1);
@@ -88,8 +84,7 @@ void TripAnalyzer::processLine(const std::string& line) {
 
     auto [zoneIt, inserted] =
         slotCounts.try_emplace(
-            pickupZone,
-            std::array<long long, 24>{}
+            pickupZone, std::array<long long, 24>{}
         );
 
     zoneIt->second[pickupHour]++;
@@ -114,24 +109,39 @@ void TripAnalyzer::ingestFile(const std::string& csvPath) {
     }
 }
 
+void TripAnalyzer::ingestStdin() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    zoneCounts.reserve(60000);
+    slotCounts.reserve(60000);
+
+    std::string line;
+    bool firstLine = true;
+
+    while (std::getline(std::cin, line)) {
+        if (firstLine) {
+            firstLine = false;
+            if (line.find("TripID") != std::string::npos) continue;
+        }
+        processLine(line);
+    }
+}
+
 std::vector<ZoneCount> TripAnalyzer::topZones(int k) const {
     std::vector<ZoneCount> results;
     results.reserve(zoneCounts.size());
 
     for (auto zoneIt = zoneCounts.begin();
-         zoneIt != zoneCounts.end();
-         ++zoneIt) {
+         zoneIt != zoneCounts.end(); ++zoneIt) {
         results.push_back({ zoneIt->first, zoneIt->second });
     }
 
-    std::sort(
-        results.begin(),
-        results.end(),
+    std::sort(results.begin(), results.end(),
         [](const ZoneCount& a, const ZoneCount& b) {
             if (a.count != b.count) return a.count > b.count;
             return a.zone < b.zone;
-        }
-    );
+        });
 
     if ((int)results.size() > k)
         results.resize(k);
@@ -139,13 +149,11 @@ std::vector<ZoneCount> TripAnalyzer::topZones(int k) const {
     return results;
 }
 
-
 std::vector<SlotCount> TripAnalyzer::topBusySlots(int k) const {
     std::vector<SlotCount> results;
 
     for (auto slotIt = slotCounts.begin();
-         slotIt != slotCounts.end();
-         ++slotIt) {
+         slotIt != slotCounts.end(); ++slotIt) {
 
         const std::string& zone = slotIt->first;
         const std::array<long long, 24>& hours = slotIt->second;
@@ -157,15 +165,12 @@ std::vector<SlotCount> TripAnalyzer::topBusySlots(int k) const {
         }
     }
 
-    std::sort(
-        results.begin(),
-        results.end(),
+    std::sort(results.begin(), results.end(),
         [](const SlotCount& a, const SlotCount& b) {
             if (a.count != b.count) return a.count > b.count;
-            if (a.zone != b.zone)   return a.zone < b.zone;
+            if (a.zone != b.zone) return a.zone < b.zone;
             return a.hour < b.hour;
-        }
-    );
+        });
 
     if ((int)results.size() > k)
         results.resize(k);
