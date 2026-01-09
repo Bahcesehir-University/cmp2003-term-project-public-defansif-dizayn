@@ -24,7 +24,7 @@ static inline int parseHour(const string& timeStr) {
 }
 
 static inline void trimInPlace(string& text) {
-    size_t start = 0;
+   size_t start = 0;
     while (start < text.size()) {
         char ch = text[start];
         if (ch != ' ' && ch != '\t' && ch != '\r' && ch != '\n') break;
@@ -40,6 +40,9 @@ static inline void trimInPlace(string& text) {
 
     if (start == 0 && end == text.size()) return;
     text = text.substr(start, end - start);
+    
+    text.erase(end);        
+    text.erase(0, start);   
 }
 
 void TripAnalyzer::processLine(const string& line) {
@@ -74,9 +77,7 @@ void TripAnalyzer::processLine(const string& line) {
     size_t spacePos = pickupTimestamp.find(' ');
     if (spacePos == string::npos || spacePos + 3 > pickupTimestamp.length()) return;
 
-    string pickupTime = pickupTimestamp.substr(spacePos + 1);
-    trimInPlace(pickupTime);
-
+    string pickupTime = pickupTimestamp.substr(spacePos + 1, 5); 
     int pickupHour = parseHour(pickupTime);
     if (pickupHour < 0 || pickupHour > 23) return;
 
@@ -150,4 +151,5 @@ vector<SlotCount> TripAnalyzer::topBusySlots(int k) const {
     if ((int)results.size() > k) results.resize(k);
     return results;
 }
+
 
