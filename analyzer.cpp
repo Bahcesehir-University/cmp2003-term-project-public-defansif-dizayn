@@ -106,24 +106,7 @@ void TripAnalyzer::ingestFile(const string& csvPath) {
     }
 }
 
-void TripAnalyzer::ingestStdin() {
-    ios::sync_with_stdio(false);
-    cin.tie(nullptr);
 
-    zoneCounts.reserve(60000);
-    slotCounts.reserve(60000);
-
-    string line;
-    bool firstLine = true;
-
-    while (getline(cin, line)) {
-        if (firstLine) {
-            firstLine = false;
-            if (line.find("TripID") != string::npos) continue;
-        }
-        processLine(line);
-    }
-}
 
 vector<ZoneCount> TripAnalyzer::topZones(int k) const {
     vector<ZoneCount> results;
@@ -167,3 +150,4 @@ vector<SlotCount> TripAnalyzer::topBusySlots(int k) const {
     if ((int)results.size() > k) results.resize(k);
     return results;
 }
+
