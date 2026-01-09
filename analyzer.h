@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <array>
 
 struct ZoneCount {
     std::string zone;
@@ -25,11 +26,12 @@ public:
     // Top K slots: count desc, zone asc, hour asc
     std::vector<SlotCount> topBusySlots(int k = 10) const;
 private:
-    std::unordered_map<string, long long> zoneCounts;
-    std::unordered_map<string, array<long long, 24>> slotCounts;
+    std::unordered_map<std::string, long long> zoneCounts;
+    std::unordered_map<std::string, array<long long, 24>> slotCounts;
 
     void processLine(const std::string& line);
 
 };
+
 
 
